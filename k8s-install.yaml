@@ -1,0 +1,131 @@
+- name: Install Docker and Kubernetes
+  hosts: all
+  become: yes
+  tasks:
+    - name: Remove Docker
+      shell: yum remove docker -y
+
+    - name: Install yum-utils
+      yum:
+        name: yum-utils
+        state: present
+    - name: Set SELinux to permissive mode
+      selinux:
+        policy: targeted
+        state: permissive
+
+    - name: Disable SELinux permanently
+      replace:
+        path: /etc/selinux/config
+        regexp: '^(SELINUX=.+)$'
+        replace: 'SELINUX=disabled'
+
+    - name: Add Docker CE repo
+      yum_repository:
+        name: docker-ce
+        description: Docker CE Stable - $basearch
+        baseurl: http://mirrors.aliyun.com/docker-ce/linux/centos/7/$basearch/stable
+        gpgcheck: no
+        enabled: yes
+
+    - name: Install Docker CE
+      yum:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - docker-ce-20.10.7
+        - docker-ce-cli-20.10.7
+        - containerd.io-1.4.6
+
+    - name: Enable and start Docker
+      service:
+        name: docker
+        enabled: yes
+        state: started
+
+    - name: Configure Docker daemon
+      copy:
+        content: |
+          {
+            "registry-mirrors": ["https://soxxp5r5.mirror.aliyuncs.com"]
+          }
+        dest: /etc/docker/daemon.json
+
+    - name: Reload systemd
+      systemd:
+        daemon_reload: yes
+
+    - name: Restart Docker
+      service:
+        name: docker
+        state: restarted
+
+    - name: Set SELinux to permissive mode
+      selinux:
+        policy: targeted
+        state: permissive
+
+    - name: Disable swap
+      command: swapoff -a
+      ignore_errors: yes
+
+    - name: Comment out swap in /etc/fstab
+      replace:
+        path: /etc/fstab
+        regexp: '^(.+?swap.+?)$'
+        replace: '#\1'
+
+    - name: Configure sysctl settings
+      sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        state: present
+        sysctl_set: yes
+        reload: yes
+      loop:
+        - { name: net.bridge.bridge-nf-call-ip6tables, value: 1 }
+        - { name: net.bridge.bridge-nf-call-iptables, value: 1 }
+
+    - name: Stop and disable firewalld
+      service:
+        name: firewalld
+        state: stopped
+        enabled: no
+
+    - name: Add Kubernetes repo
+      copy:
+        content: |
+          [kubernetes]
+          name=Kubernetes
+          baseurl=http://mirrors.aliyun.com/kubernetes/yum/repos/kubernetes-el7-x86_64
+          enabled=1
+          gpgcheck=0
+          repo_gpgcheck=0
+          gpgkey=http://mirrors.aliyun.com/kubernetes/yum/doc/yum-key.gpg
+                 http://mirrors.aliyun.com/kubernetes/yum/doc/rpm-package-key.gpg
+        dest: /etc/yum.repos.d/kubernetes.repo
+
+    - name: Install Kubernetes packages
+      yum:
+        name:
+          - kubelet-1.20.9
+          - kubeadm-1.20.9
+          - kubectl-1.20.9
+        state: present
+
+    - name: Enable and start kubelet
+      service:
+        name: kubelet
+        enabled: yes
+        state: started
+
+    - name: Update /etc/hosts
+      blockinfile:
+        path: /etc/hosts
+        marker: "# {mark} ANSIBLE MANAGED BLOCK {{ item }}"
+        block: |
+          192.168.10.111  k8s-master
+          192.168.10.112  k8s-node2
+          192.168.10.113  k8s-node3
+      loop: [1]
+

@@ -1,0 +1,9 @@
+- name: Execute script on remote hosts
+  hosts: k8s
+  tasks:
+    - name: Run local script on remote hosts
+      script: /root/kubernetes/k8s-install.sh
+      args:
+        executable: /bin/bash
+      delegate_to: localhost
+      run_once: true
